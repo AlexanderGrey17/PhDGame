@@ -1,0 +1,1 @@
+A simulation game for PhD programs in Operations Research. Inspired by the PhD Simulator created by Mianzhi Wang ([https://research.wmz.ninja/](https://research.wmz.ninja/projects/phd/index.html)), this game was generated using Claude AI Sonnet 4.6. It is released under the MIT open license. All rights reserved.
