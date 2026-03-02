@@ -59,13 +59,13 @@ const OPRE_RATES = [{
   major: 0.30,
   reject: 0.60
 }, {
-  accept: 0.15,
-  major: 0.35,
-  reject: 0.50
-}, {
   accept: 0.20,
+  major: 0.40,
+  reject: 0.40
+}, {
+  accept: 0.30,
   major: 0.00,
-  reject: 0.80
+  reject: 0.70
 }];
 
 // Monthly salary and expenses
@@ -603,6 +603,7 @@ function tickMonth(s) {
       ns.compExamAttempts = (ns.compExamAttempts || 0) + 1;
       if (passed) {
         ns.compExamPassed = true;
+        ns.mentalHealth = clamp(ns.mentalHealth + 20)
         ns.domainKnowledge = clamp(ns.domainKnowledge + 10);
         ns.academicReputation = clamp(ns.academicReputation + 8);
         ns.pendingLetters = [...ns.pendingLetters, {
@@ -612,7 +613,7 @@ function tickMonth(s) {
           chance: Math.round(chance * 100),
           month: ns.month
         }];
-        ns.log = [`🎉 PASSED Comprehensive Exam (attempt ${ns.compExamAttempts})! +knowledge +reputation.`, ...ns.log];
+        ns.log = [`🎉 PASSED Comprehensive Exam (attempt ${ns.compExamAttempts})! +mood +knowledge +reputation.`, ...ns.log];
       } else {
         if (ns.compExamAttempts >= 2) {
           // Failed both attempts → expelled
@@ -2322,7 +2323,25 @@ function LettersPanel({
           background: C.inset,
           borderRadius: 10
         }
+      }, 
+      /*#__PURE__*/
+      React.createElement("div", {
+        style: {
+          textAlign: "center"
+        }
       }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: C.sub
+        }
+      }, "Mood"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 16,
+          fontWeight: 700,
+          color: C.green
+        }
+      }, "+20")), /*#__PURE__*/
+      React.createElement("div", {
         style: {
           textAlign: "center"
         }
@@ -3989,7 +4008,7 @@ function PhDOdyssey() {
     }
     if (key === "read_papers") {
       setS(prev => {
-        const gotIdea = Math.random() < 0.10;
+        const gotIdea = Math.random() < 0.20;
         if (gotIdea) setTimeout(() => setIdeaPopup(true), 50);
         const ns = {
           ...prev,
@@ -4167,14 +4186,14 @@ function PhDOdyssey() {
       if (!prev.activeProject) return prev;
       const idx = prev.projects.findIndex(p => p.id === prev.activeProject);
       if (idx === -1) return prev;
-      const eff = prev.mentalHealth / 100 * (0.5 + prev.domainKnowledge / 200);
-      const gain = Math.round(10 + eff * 15 + Math.random() * 10);
+      const eff = prev.mentalHealth / 100 * (0.5 + prev.domainKnowledge / 100);
+      const gain = Math.round(10 + eff * 20 + Math.random() * 10);
       let solvedKnowledge = prev.domainKnowledge;
       const projects = prev.projects.map((p, i) => {
         if (i !== idx) return p;
         const np = Math.min(p.progress + gain, 200);
         let solved = p.solved;
-        if (!solved && np > 100 && Math.random() < (np - 100) / 200) {
+        if (!solved && np > 100 && Math.random() < (np - 100) / 100) {
           solved = true;
           solvedKnowledge = prev.domainKnowledge;
         }
