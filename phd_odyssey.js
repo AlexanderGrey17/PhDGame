@@ -1,58 +1,72 @@
-// import { useState, useRef } from "react";
-const { useState, useRef } = React;
-
+//import { useState, useRef, createContext, useContext } from "react";
+const { useState, useRef, createContext, useContext } = React;
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const MAX_MONTHS = 72;
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Journal levels: COR=low, EJOR=median, OPRE=high
 const JOURNALS = {
   COR: {
-    name: "Computers & Operations Research",
-    reviewTime: 3
+    name: "Computers and Operations Research",
+    reviewTime: 3,
+    level: "low"
   },
   EJOR: {
-    name: "European Journal of Operational Research",
-    reviewTime: 5
+    name: "European Journal of Operations Research",
+    reviewTime: 5,
+    level: "median"
   },
-  MNSC: {
-    name: "Management Science",
-    reviewTime: 6
+  OPRE: {
+    name: "Operations Research",
+    reviewTime: 6,
+    level: "high"
   }
 };
-const ACCEPT_RATES = {
+
+// Minimum RQ and WQ required to submit to each journal
+const JOURNAL_REQS = {
   COR: {
-    low: 0.85,
-    median: 0.95,
-    high: 1.00
+    rq: 30,
+    wq: 10
   },
   EJOR: {
-    low: 0.50,
-    median: 0.70,
-    high: 0.80
+    rq: 80,
+    wq: 30
   },
-  MNSC: {
-    low: 0.15,
-    median: 0.30,
-    high: 0.50
+  OPRE: {
+    rq: 100,
+    wq: 50
   }
+};
+
+// COR and EJOR simple probabilities
+const ACCEPT_RATES = {
+  COR: 0.80,
+  EJOR: 0.45
 };
 const MAJOR_REVISION_RATES = {
-  COR: {
-    low: 0.10,
-    median: 0.04,
-    high: 0.00
-  },
-  EJOR: {
-    low: 0.30,
-    median: 0.20,
-    high: 0.15
-  },
-  MNSC: {
-    low: 0.40,
-    median: 0.35,
-    high: 0.30
-  }
+  COR: 0.15,
+  EJOR: 0.30
 };
+
+// OPRE outcome rates per revision round (index = revisionCount before this submission)
+// round 0: accept 10%, major 30%, reject 60%
+// round 1: accept 15%, major 35%, reject 50%
+// round 2+: accept 20%, reject 80%, no further major revision
+const OPRE_RATES = [{
+  accept: 0.1,
+  major: 0.3,
+  reject: 0.6
+}, {
+  accept: 0.15,
+  major: 0.35,
+  reject: 0.50
+}, {
+  accept: 0.20,
+  major: 0.00,
+  reject: 0.80
+}];
 
 // Monthly salary and expenses
 const MONTHLY_SALARY = 2000;
@@ -102,12 +116,12 @@ const LEISURE_ACTIVITIES = [{
   mhGain: 10,
   desc: "Treat yourself to a proper meal."
 }, {
-  id: "concert",
-  label: "🎶 Live Concert",
+  id: "fencing",
+  label: "🤺 Go Fencing",
   months: null,
   cost: 150,
-  mhGain: 12,
-  desc: "Music lifts the spirit."
+  mhGain: 15,
+  desc: "An elegant sport. En garde!"
 }];
 
 // INFORMS conference calendar
@@ -165,35 +179,11 @@ const RANDOM_EVENTS = [{
   }, {
     text: "Involve your advisor",
     effects: {
-      advisorRelation: +5,
-      mentalHealth: -5,
+      advisorRelation: -10,
+      mentalHealth: -10,
       academicReputation: -5
     },
     consequence: "Advisor mediates. Awkward but resolved."
-  }]
-}, {
-  id: "burnout",
-  title: "Burnout Warning",
-  category: "Personal",
-  description: "You've been working non-stop. You feel empty and unmotivated.",
-  options: [{
-    text: "Take a week off",
-    effects: {
-      mentalHealth: +20
-    },
-    consequence: "Rest restores your spirit."
-  }, {
-    text: "Push through",
-    effects: {
-      mentalHealth: -20
-    },
-    consequence: "You survive, barely. Sanity slipping."
-  }, {
-    text: "Talk to a counselor",
-    effects: {
-      mentalHealth: +15
-    },
-    consequence: "Professional support helps more than expected."
   }]
 }, {
   id: "seminar",
@@ -298,17 +288,18 @@ const RANDOM_EVENTS = [{
   category: "School",
   description: "You're assigned to TA an undergraduate course this semester.",
   options: [{
-    text: "Embrace it enthusiastically",
+    text: "Accept the TA position",
     effects: {
-      mentalHealth: -5,
-      domainKnowledge: +5,
-      academicReputation: +5
+      mentalHealth: -10,
+      academicReputation: +8,
+      money: +1000
     },
-    consequence: "Students love you. Teaching improves understanding."
+    consequence: "Students appreciate your teaching. It pays well too.",
+    setTA: true
   }, {
-    text: "Do the minimum required",
+    text: "Decline the assignment",
     effects: {},
-    consequence: "Balanced. No one complains."
+    consequence: "You keep your schedule clear for research."
   }]
 }, {
   id: "code_bug",
@@ -349,6 +340,25 @@ const RANDOM_EVENTS = [{
     },
     consequence: "Inconvenient but manageable."
   }]
+}, {
+  id: "admin_work",
+  title: "Administrative Request",
+  category: "School",
+  description: "Your advisor asks you to help organize the department's upcoming workshop — reviewing submissions, preparing schedules, and coordinating logistics.",
+  options: [{
+    text: "Help out with the workshop",
+    effects: {
+      mentalHealth: -12,
+      advisorRelation: +15
+    },
+    consequence: "Your advisor is grateful. Your relationship grows stronger."
+  }, {
+    text: "Apologize and decline",
+    effects: {
+      advisorRelation: -8
+    },
+    consequence: "Your advisor is slightly disappointed but understands."
+  }]
 }];
 
 // NSF Fellowship calendar
@@ -362,6 +372,11 @@ const COMP_EXAM_MONTH_2 = 15; // November of Year 2
 const COMP_EXAM_BASE_CHANCE = 0.20;
 const COMP_EXAM_STUDY_BONUS = 0.175; // 4 studies → 0.20+4*0.175 = 0.90
 
+// Advisor Year-3 performance review: last month of Year 3
+// Sep Y1=month 1 → Sep Y3=month 25, Aug Y3=month 24, so last of Y3 = month 36 (Aug Y4? no)
+// Y3 runs months 25-36 (Sep Y3–Aug Y4). Last month of calendar Year 3 = month 36.
+const ADVISOR_Y3_REVIEW_MONTH = 36;
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 const clamp = (v, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
@@ -371,7 +386,7 @@ const calMonIdx = gameMonth => (START_MONTH_OFFSET + gameMonth - 1) % 12;
 const calYear = gameMonth => 1 + Math.floor((START_MONTH_OFFSET + gameMonth - 1) / 12);
 const monthIdx = calMonIdx; // alias used throughout
 
-// Publication score: weights MNSC heavily, used for scholarship/NSF chances
+// Publication score: weights OPRE heavily, used for scholarship/NSF chances
 function pubScore(s) {
   return s.pubHigh * 10 + s.pubMedian * 4 + s.pubLow * 1;
 }
@@ -382,15 +397,26 @@ function nsfChance(s) {
   // score 0→5%, 5→25%, 10→50%, 20→75%
   return Math.min(0.05 + score / 20 * 0.70, 0.75);
 }
-function qualityTier(q) {
-  if (q >= 75) return "high";
-  if (q >= 45) return "median";
-  return "low";
+
+// Determine which journals a paper qualifies for based on rq and wq
+function eligibleJournals(paper) {
+  return Object.keys(JOURNALS).filter(j => {
+    const req = JOURNAL_REQS[j];
+    return (paper.rq || 0) >= req.rq && (paper.wq || 0) >= req.wq;
+  });
 }
-function acceptOutcome(journal, tier, revBonus = 0) {
-  const acc = Math.min(ACCEPT_RATES[journal][tier] + revBonus, 0.95);
-  const major = MAJOR_REVISION_RATES[journal][tier];
+function acceptOutcome(journal, revisionCount) {
   const r = Math.random();
+  if (journal === "OPRE") {
+    const round = Math.min(revisionCount, 2);
+    const rates = OPRE_RATES[round];
+    if (r < rates.accept) return "accept";
+    if (r < rates.accept + rates.major) return "major_revision";
+    return "reject";
+  }
+  // COR / EJOR
+  const acc = ACCEPT_RATES[journal] ?? 0.50;
+  const major = MAJOR_REVISION_RATES[journal] ?? 0.20;
   if (r < acc) return "accept";
   if (r < acc + major) return "major_revision";
   return "reject";
@@ -445,8 +471,8 @@ function tickMonth(s) {
     pendingLetters: [] // reset — letters get consumed by the modal, freshly generated each tick
   };
 
-  // ── Salary + NSF bonus – expenses ──
-  const salaryIn = MONTHLY_SALARY + (ns.nsfBonus || 0);
+  // ── Salary – expenses ──
+  const salaryIn = MONTHLY_SALARY;
   const rentOut = MONTHLY_EXPENSES;
   ns.money = (ns.money || 0) + salaryIn - rentOut;
   // Always queue a finance summary letter each month
@@ -455,7 +481,7 @@ function tickMonth(s) {
     salary: salaryIn,
     expenses: rentOut,
     balance: ns.money,
-    nsfBonus: ns.nsfBonus || 0,
+    nsfBonus: 0,
     extraItems: [...(ns.monthSpending || [])] // leisure + event spending from previous action
   }];
   ns.monthSpending = []; // reset for next month
@@ -517,19 +543,25 @@ function tickMonth(s) {
     const awarded = Math.random() < chance;
     ns.nsfApplied = false;
     if (awarded) {
-      ns.nsfBonus = 2000;
+      ns.money += 10000;
       ns.nsfEverWon = true;
+      ns.mentalHealth = clamp(ns.mentalHealth + 20);
+      ns.monthSpending = [...(ns.monthSpending || []), {
+        label: "🏅 NSF Fellowship (one-time award)",
+        amount: 10000
+      }];
       ns.pendingLetters = [...ns.pendingLetters, {
         type: "nsf_award",
         month: ns.month
       }];
-      ns.log = [`🏆 NSF Fellowship AWARDED! +$2,000/month supplement starting now.`, ...ns.log];
+      ns.log = [`🏆 NSF Fellowship AWARDED! +$10,000 one-time. +20 mood.`, ...ns.log];
     } else {
+      ns.mentalHealth = clamp(ns.mentalHealth - 10);
       ns.pendingLetters = [...ns.pendingLetters, {
         type: "nsf_reject",
         month: ns.month
       }];
-      ns.log = [`😔 NSF Fellowship application was not successful this cycle.`, ...ns.log];
+      ns.log = [`😔 NSF Fellowship not awarded this cycle. -10 mood.`, ...ns.log];
     }
   }
 
@@ -622,26 +654,30 @@ function tickMonth(s) {
     const p = {
       ...ns.papers[idx]
     };
-    const tier = qualityTier(p.quality);
-    const outcome = acceptOutcome(rev.journal, tier, rev.revisionCount * 0.1);
+    const outcome = acceptOutcome(rev.journal, rev.revisionCount || 0);
     if (outcome === "accept") {
       p.status = "accepted";
       p.journal = rev.journal;
-      const jLevel = rev.journal === "MNSC" ? "high" : rev.journal === "EJOR" ? "median" : "low";
+      const jLevel = JOURNALS[rev.journal].level;
       if (jLevel === "high") ns.pubHigh++;else if (jLevel === "median") ns.pubMedian++;else ns.pubLow++;
       // Boost mood & reputation on acceptance
-      const mhBoost = rev.journal === "MNSC" ? 20 : rev.journal === "EJOR" ? 12 : 6;
-      const repBoost = rev.journal === "MNSC" ? 15 : rev.journal === "EJOR" ? 8 : 4;
-      ns.mentalHealth = clamp(ns.mentalHealth + mhBoost);
-      ns.academicReputation = clamp(ns.academicReputation + repBoost);
-      ns.advisorRelation = clamp(ns.advisorRelation + 5);
+      if (rev.journal === "OPRE") {
+        ns.mentalHealth = clamp(ns.mentalHealth + 100);
+        ns.academicReputation = clamp(ns.academicReputation + 100);
+        ns.advisorRelation = clamp(ns.advisorRelation + 100);
+      } else {
+        const mhBoost = rev.journal === "EJOR" ? 12 : 6;
+        const repBoost = rev.journal === "EJOR" ? 8 : 4;
+        ns.mentalHealth = clamp(ns.mentalHealth + 10 + mhBoost);
+        ns.academicReputation = clamp(ns.academicReputation + repBoost);
+        ns.advisorRelation = clamp(ns.advisorRelation + 5);
+      }
       // Queue a decision letter
       ns.pendingLetters = [...ns.pendingLetters, {
         type: "paper_decision",
         outcome: "accept",
         paperId: p.id,
         journal: rev.journal,
-        tier,
         month: ns.month
       }];
       ns.log = [`🎉 "${p.id}" ACCEPTED in ${rev.journal}! +mood +reputation`, ...ns.log];
@@ -654,22 +690,24 @@ function tickMonth(s) {
         outcome: "major_revision",
         paperId: p.id,
         journal: rev.journal,
-        tier,
-        month: ns.month
+        month: ns.month,
+        revisionRound: p.revisionCount
       }];
-      ns.log = [`📝 "${p.id}" MAJOR REVISION requested by ${rev.journal}.`, ...ns.log];
+      ns.log = [`📝 "${p.id}" MAJOR REVISION requested by ${rev.journal} (round ${p.revisionCount}).`, ...ns.log];
     } else {
       p.status = "rejected";
       p.rejectedFrom = [...(p.rejectedFrom || []), rev.journal];
+      // Mood and advisor penalty on rejection
+      ns.mentalHealth = clamp(ns.mentalHealth - 10);
+      ns.advisorRelation = clamp(ns.advisorRelation - 5);
       ns.pendingLetters = [...ns.pendingLetters, {
         type: "paper_decision",
         outcome: "reject",
         paperId: p.id,
         journal: rev.journal,
-        tier,
         month: ns.month
       }];
-      ns.log = [`❌ "${p.id}" REJECTED from ${rev.journal}.`, ...ns.log];
+      ns.log = [`❌ "${p.id}" REJECTED from ${rev.journal}. -10 mood, -5 advisor relation.`, ...ns.log];
     }
     ns.papers[idx] = p;
   });
@@ -686,11 +724,13 @@ function tickMonth(s) {
         const p = {
           ...ns.papers[idx]
         };
-        const tier = qualityTier(p.quality);
-        p.advisorLevel = tier === "high" ? "MNSC" : tier === "median" ? "EJOR" : "COR";
+        // Suggest highest journal the paper qualifies for
+        const elig = eligibleJournals(p);
+        const suggestions = ["OPRE", "EJOR", "COR"];
+        p.advisorLevel = suggestions.find(j => elig.includes(j)) || "COR";
         p.status = "advisor_approved";
         ns.papers[idx] = p;
-        ns.log = [`👨‍🏫 Advisor reviewed "${p.id}". Suggested: ${p.advisorLevel}.`, ...ns.log];
+        ns.log = [`👨‍🏫 Advisor reviewed "${p.id}". Suggested: ${p.advisorLevel} (RQ:${p.rq} WQ:${p.wq}).`, ...ns.log];
       }
       ns.pendingAdvisorReview = null;
     }
@@ -710,6 +750,41 @@ function tickMonth(s) {
     }
   }
   ns.canWriteThesis = canGraduate(ns);
+  // Reset TA flag each month
+  ns.taDoneThisMonth = false;
+
+  // ── Advisor Year-3 performance review ──
+  if (ns.month === ADVISOR_Y3_REVIEW_MONTH && !ns.advisorY3ReviewDone) {
+    ns.advisorY3ReviewDone = true;
+    const hasPub = ns.pubLow + ns.pubMedian + ns.pubHigh >= 1;
+    const hasAnyPaper = ns.papers.length > 0;
+    if (hasPub) {
+      // Satisfied
+      ns.advisorRelation = clamp(ns.advisorRelation + 10);
+      ns.academicReputation = clamp(ns.academicReputation + 5);
+      ns.pendingLetters = [...ns.pendingLetters, {
+        type: "advisor_y3_review",
+        verdict: "satisfied"
+      }];
+      ns.log = [`👨‍🏫 Year-3 Review: Advisor is satisfied — you have a publication!`, ...ns.log];
+    } else if (hasAnyPaper) {
+      // Upset — has papers but none published
+      ns.advisorRelation = clamp(ns.advisorRelation - 20);
+      ns.pendingLetters = [...ns.pendingLetters, {
+        type: "advisor_y3_review",
+        verdict: "upset"
+      }];
+      ns.log = [`😟 Year-3 Review: Advisor is upset — no publications yet.`, ...ns.log];
+    } else {
+      // Very upset — not even writing
+      ns.advisorRelation = clamp(ns.advisorRelation - 35);
+      ns.pendingLetters = [...ns.pendingLetters, {
+        type: "advisor_y3_review",
+        verdict: "very_upset"
+      }];
+      ns.log = [`😡 Year-3 Review: Advisor is very upset — you haven't even started writing!`, ...ns.log];
+    }
+  }
   ns.currentEvent = randEvent();
   // If there are pending letters, show them before the event
   ns.phase = ns.pendingLetters.length > 0 ? "letters" : "event";
@@ -753,7 +828,7 @@ function initialState() {
     nsfApplied: false,
     // applied in October for NSF fellowship
     nsfBonus: 0,
-    // monthly bonus from NSF (0 or 2000)
+    // unused (NSF is now a one-time award)
     nsfEverWon: false,
     // once won, can never apply again
     pendingLetters: [],
@@ -764,17 +839,22 @@ function initialState() {
     // 0, 1, or 2 attempts used
     compExamStudySessions: 0,
     // how many months spent studying for comp exam
+    taDoneThisMonth: false,
+    // TA taken this month → research blocked
+    advisorY3ReviewDone: false,
+    // year-3 performance review triggered once
     currentEvent: randEvent(),
-    log: ["📬 Month 1: You've accepted your PhD offer in Management Science. Good luck!"]
+    log: ["📬 Month 1: You've accepted your PhD offer in Operations Research. Good luck!"]
   };
 }
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 
-const C = {
+const LIGHT = {
   bg: "#f5f1eb",
   surface: "#ffffff",
   surfaceAlt: "#faf8f5",
+  inset: "rgba(255,255,255,0.50)",
   border: "#e5dfd5",
   text: "#2a2535",
   sub: "#6b6075",
@@ -794,17 +874,33 @@ const C = {
   teal: "#00838f",
   tealSoft: "#e0f7fa"
 };
-const TIER_COLOR = {
-  high: C.amber,
-  median: C.accent,
-  low: C.green
+const DARK = {
+  bg: "#12111a",
+  surface: "#1e1c2a",
+  surfaceAlt: "#252336",
+  inset: "rgba(0,0,0,0.50)",
+  border: "#332f4a",
+  text: "#e8e4f0",
+  sub: "#9b94b0",
+  muted: "#5e5878",
+  accent: "#a78bfa",
+  accentSoft: "#2a2350",
+  green: "#34d399",
+  greenSoft: "#0d2e26",
+  red: "#f87171",
+  redSoft: "#2e1414",
+  amber: "#fbbf24",
+  amberSoft: "#2e2208",
+  blue: "#60a5fa",
+  blueSoft: "#0d1f3c",
+  rose: "#f472b6",
+  roseSoft: "#2e1124",
+  teal: "#2dd4bf",
+  tealSoft: "#0d2928"
 };
-const TIER_BG = {
-  high: C.amberSoft,
-  median: C.accentSoft,
-  low: C.greenSoft
-};
-const GLOBAL_STYLES = `
+const ThemeCtx = /*#__PURE__*/createContext(LIGHT);
+const useC = () => useContext(ThemeCtx);
+const makeGlobalStyles = C => `
   @import url('https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   body { background:${C.bg}; font-family:'DM Mono',monospace; }
@@ -812,6 +908,15 @@ const GLOBAL_STYLES = `
   ::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
   @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
   @keyframes popIn  { from{opacity:0;transform:scale(.95)}       to{opacity:1;transform:scale(1)}      }
+  @keyframes confettiFall {
+    0%   { transform:translateY(-10px) rotate(0deg);   opacity:1; }
+    100% { transform:translateY(340px) rotate(720deg); opacity:0; }
+  }
+  @keyframes ideaPop {
+    0%   { opacity:0; transform:scale(.7) translateY(10px); }
+    60%  { opacity:1; transform:scale(1.05) translateY(-4px); }
+    100% { opacity:1; transform:scale(1) translateY(0); }
+  }
 `;
 
 // ─── UI ATOMS ─────────────────────────────────────────────────────────────────
@@ -821,6 +926,7 @@ function StatBar({
   value,
   color
 }) {
+  const C = useC();
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 8
@@ -861,6 +967,7 @@ function Pill({
   bg,
   small
 }) {
+  const C = useC();
   return /*#__PURE__*/React.createElement("span", {
     style: {
       background: bg || C.accentSoft,
@@ -881,6 +988,7 @@ function Btn({
   small,
   full
 }) {
+  const C = useC();
   const styles = {
     primary: {
       bg: C.accent,
@@ -950,6 +1058,7 @@ function Card({
   style,
   onClick
 }) {
+  const C = useC();
   const [hov, setHov] = useState(false);
   return /*#__PURE__*/React.createElement("div", {
     onClick: onClick,
@@ -970,18 +1079,257 @@ function Card({
 }
 function SectionLabel({
   children,
-  color = C.accent
+  color
 }) {
+  const C = useC();
+  const col = color || C.accent;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 9,
-      color,
+      color: col,
       fontWeight: 600,
       letterSpacing: 2,
       marginBottom: 12,
       textTransform: "uppercase"
     }
   }, children);
+}
+
+// ─── CONFETTI ─────────────────────────────────────────────────────────────────
+
+function Confetti() {
+  const C = useC();
+  const pieces = Array.from({
+    length: 48
+  }, (_, i) => ({
+    id: i,
+    color: ["#6c5ce7", "#00897b", "#c67c00", "#e53935", "#c2185b", "#1565c0", "#f9ca24", "#f0932b"][i % 8],
+    left: `${Math.random() * 100}%`,
+    delay: `${Math.random() * 1.2}s`,
+    duration: `${1.4 + Math.random() * 0.8}s`,
+    size: `${6 + Math.random() * 8}px`,
+    shape: i % 3 === 0 ? "circle" : i % 3 === 1 ? "50% 0 0 50% / 50% 0 0 50%" : "0"
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      inset: 0,
+      overflow: "hidden",
+      pointerEvents: "none",
+      zIndex: 10
+    }
+  }, pieces.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.id,
+    style: {
+      position: "absolute",
+      top: 0,
+      left: p.left,
+      width: p.size,
+      height: p.size,
+      background: p.color,
+      borderRadius: p.shape,
+      animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards`
+    }
+  })));
+}
+
+// ─── IDEA POPUP ───────────────────────────────────────────────────────────────
+
+function IdeaPopup({
+  onDismiss
+}) {
+  const C = useC();
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,.45)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1000,
+      animation: "fadeIn .2s ease"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.surface,
+      borderRadius: 20,
+      padding: "40px 44px",
+      maxWidth: 380,
+      textAlign: "center",
+      position: "relative",
+      border: `2px solid ${C.amber}`,
+      animation: "ideaPop .4s ease",
+      boxShadow: "0 24px 48px rgba(0,0,0,.18)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 52,
+      marginBottom: 12
+    }
+  }, "\uD83D\uDCA1"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Lora',serif",
+      fontSize: 22,
+      fontWeight: 700,
+      color: C.amber,
+      marginBottom: 10
+    }
+  }, "New Research Idea!"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.sub,
+      lineHeight: 1.8,
+      marginBottom: 24
+    }
+  }, "While reading through the literature, a spark of inspiration struck. You've identified a promising new research direction to explore."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.amberSoft,
+      borderRadius: 10,
+      padding: "10px 16px",
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.amber,
+      marginBottom: 24
+    }
+  }, "\uD83D\uDCA1 +1 Idea added to your idea bank"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: onDismiss,
+    variant: "amber"
+  }, "Got it \u2014 let's keep going!")));
+}
+
+// ─── BREAKTHROUGH POPUP ───────────────────────────────────────────────────────
+
+function BreakthroughPopup({
+  projectId,
+  rq,
+  onDismiss
+}) {
+  const C = useC();
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,.5)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1000,
+      animation: "fadeIn .2s ease"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.surface,
+      borderRadius: 20,
+      padding: "40px 44px",
+      maxWidth: 420,
+      textAlign: "center",
+      position: "relative",
+      overflow: "hidden",
+      border: `2px solid ${C.green}`,
+      animation: "ideaPop .4s ease",
+      boxShadow: "0 24px 48px rgba(0,0,0,.2)"
+    }
+  }, /*#__PURE__*/React.createElement(Confetti, null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 52,
+      marginBottom: 12
+    }
+  }, "\uD83C\uDFAF"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Lora',serif",
+      fontSize: 22,
+      fontWeight: 700,
+      color: C.green,
+      marginBottom: 10
+    }
+  }, "Problem Solved!"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.sub,
+      lineHeight: 1.8,
+      marginBottom: 20
+    }
+  }, "After months of focused research, you've cracked it.", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: C.text
+    }
+  }, " ", projectId), " is now solved and ready to be written up into a publication."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.blueSoft,
+      borderRadius: 10,
+      padding: "12px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.blue,
+      fontWeight: 600,
+      letterSpacing: 1,
+      marginBottom: 4
+    }
+  }, "RESEARCH QUALITY"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 26,
+      fontWeight: 700,
+      color: C.blue,
+      fontFamily: "'Lora',serif"
+    }
+  }, rq), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 2
+    }
+  }, "locked in as RQ")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.greenSoft,
+      borderRadius: 10,
+      padding: "12px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.green,
+      fontWeight: 600,
+      letterSpacing: 1,
+      marginBottom: 4
+    }
+  }, "NEXT STEP"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: C.green,
+      marginTop: 6
+    }
+  }, "\u270D\uFE0F Write Paper"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 4
+    }
+  }, "Build WQ through writing"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.amberSoft,
+      borderRadius: 10,
+      padding: "10px 16px",
+      fontSize: 12,
+      color: C.amber,
+      fontWeight: 600,
+      marginBottom: 24,
+      lineHeight: 1.6
+    }
+  }, "\u26A0\uFE0F Domain knowledge has been consumed into this breakthrough and reset to 0."), /*#__PURE__*/React.createElement(Btn, {
+    onClick: onDismiss,
+    variant: "success"
+  }, "Let's write it up \u2192")));
 }
 function ChoiceCard({
   onClick,
@@ -990,6 +1338,7 @@ function ChoiceCard({
   disabled,
   color
 }) {
+  const C = useC();
   const [hov, setHov] = useState(false);
   const bc = disabled ? C.border : color || (highlight ? C.accent : hov ? C.accent : C.border);
   return /*#__PURE__*/React.createElement("button", {
@@ -1018,6 +1367,7 @@ function ChoiceCard({
 function WelcomePanel({
   onStart
 }) {
+  const C = useC();
   return /*#__PURE__*/React.createElement("div", {
     style: {
       animation: "fadeIn .4s ease"
@@ -1028,9 +1378,11 @@ function WelcomePanel({
       border: `1px solid ${C.accent}44`,
       borderRadius: 16,
       padding: "32px 36px",
-      marginBottom: 20
+      marginBottom: 20,
+      position: "relative",
+      overflow: "hidden"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Confetti, null), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 48,
       marginBottom: 16,
@@ -1053,7 +1405,7 @@ function WelcomePanel({
       textAlign: "center",
       marginBottom: 24
     }
-  }, "MANAGEMENT SCIENCE \xB7 YEAR 1"), /*#__PURE__*/React.createElement("div", {
+  }, "OPERATIONS RESEARCH \xB7 YEAR 1"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: C.text,
@@ -1064,7 +1416,7 @@ function WelcomePanel({
     style: {
       marginBottom: 10
     }
-  }, "Congratulations! You have accepted your doctoral offer at the Department of Management Science. Your journey to a PhD begins today."), /*#__PURE__*/React.createElement("p", {
+  }, "Congratulations! You have accepted your doctoral offer at the Department of Operations Research. Your journey to a PhD begins today."), /*#__PURE__*/React.createElement("p", {
     style: {
       marginBottom: 10
     }
@@ -1090,13 +1442,13 @@ function WelcomePanel({
       display: "grid",
       gridTemplateColumns: "repeat(4,1fr)",
       gap: 10,
-      background: "#fff",
+      background: C.inset,
       borderRadius: 12,
       padding: "14px 16px",
       marginBottom: 20
     }
   }, [{
-    label: "Mental Health",
+    label: "Mood",
     val: "80",
     color: C.green
   }, {
@@ -1143,6 +1495,7 @@ function LettersPanel({
   s,
   onDismiss
 }) {
+  const C = useC();
   const [idx, setIdx] = useState(0);
   const letters = s.pendingLetters || [];
   if (letters.length === 0) {
@@ -1287,7 +1640,7 @@ function LettersPanel({
           color: C.amber,
           fontWeight: 600
         }
-      }, "\u26A0\uFE0F Funds are running low. Apply for NSF Fellowship in October.")));
+      }, "\u26A0\uFE0F Funds are running low. Apply for NSF Fellowship in October ($10k one-time).")));
     }
 
     // ── Paper decision letter ──
@@ -1296,30 +1649,32 @@ function LettersPanel({
         outcome,
         paperId,
         journal,
-        tier
+        revisionRound
       } = letter;
       const jFull = JOURNALS[journal]?.name || journal;
-      const mon = MONTH_NAMES[(s.month - 1) % 12];
-      const year = Math.ceil(s.month / 12);
       if (outcome === "accept") {
-        const mhBoost = journal === "MNSC" ? 20 : journal === "EJOR" ? 12 : 6;
-        const repBoost = journal === "MNSC" ? 15 : journal === "EJOR" ? 8 : 4;
+        const isOPRE = journal === "OPRE";
+        const mhBoost = isOPRE ? 100 : 10 + (journal === "EJOR" ? 12 : 6);
+        const repBoost = isOPRE ? 100 : journal === "EJOR" ? 8 : 4;
+        const advBoost = isOPRE ? 100 : 5;
         return /*#__PURE__*/React.createElement("div", {
           style: {
             animation: "popIn .35s ease"
           }
         }, /*#__PURE__*/React.createElement("div", {
           style: {
-            background: C.greenSoft,
-            border: `2px solid ${C.green}`,
+            background: isOPRE ? C.amberSoft : C.greenSoft,
+            border: `2px solid ${isOPRE ? C.amber : C.green}`,
             borderRadius: 14,
             padding: "28px 32px",
-            marginBottom: 16
+            marginBottom: 16,
+            position: "relative",
+            overflow: "hidden"
           }
-        }, /*#__PURE__*/React.createElement("div", {
+        }, /*#__PURE__*/React.createElement(Confetti, null), /*#__PURE__*/React.createElement("div", {
           style: {
             fontSize: 11,
-            color: C.green,
+            color: isOPRE ? C.amber : C.green,
             letterSpacing: 3,
             marginBottom: 12,
             fontWeight: 600
@@ -1329,10 +1684,10 @@ function LettersPanel({
             fontFamily: "'Lora',serif",
             fontSize: 22,
             fontWeight: 700,
-            color: C.green,
+            color: isOPRE ? C.amber : C.green,
             marginBottom: 16
           }
-        }, "\uD83C\uDF89 Acceptance Notification"), /*#__PURE__*/React.createElement("div", {
+        }, isOPRE ? "🏆 Outstanding Achievement!" : "🎉 Acceptance Notification"), /*#__PURE__*/React.createElement("div", {
           style: {
             fontSize: 13,
             color: C.text,
@@ -1347,16 +1702,18 @@ function LettersPanel({
           style: {
             marginBottom: 8
           }
-        }, "We are pleased to inform you that your manuscript ", /*#__PURE__*/React.createElement("strong", null, "\"", paperId, "\""), " has been accepted for publication in ", /*#__PURE__*/React.createElement("strong", null, jFull), "."), /*#__PURE__*/React.createElement("p", {
+        }, "We are pleased to inform you that your manuscript ", /*#__PURE__*/React.createElement("strong", null, "\"", paperId, "\""), " has been accepted for publication in ", /*#__PURE__*/React.createElement("strong", null, jFull), "."), isOPRE && /*#__PURE__*/React.createElement("p", {
           style: {
-            marginBottom: 8
+            marginBottom: 8,
+            color: C.amber,
+            fontWeight: 600
           }
-        }, "After careful review by our editorial board, your contribution has been deemed suitable for publication. Congratulations on this significant achievement."), /*#__PURE__*/React.createElement("p", null, "Sincerely,", /*#__PURE__*/React.createElement("br", null), "The Editorial Board, ", journal)), /*#__PURE__*/React.createElement("div", {
+        }, "Publishing in Operations Research is an extraordinary accomplishment that will define your academic career. Your advisor and department are immensely proud."), /*#__PURE__*/React.createElement("p", null, "Sincerely,", /*#__PURE__*/React.createElement("br", null), "The Editorial Board, ", journal)), /*#__PURE__*/React.createElement("div", {
           style: {
             display: "flex",
             gap: 16,
             padding: "12px 16px",
-            background: "#fff",
+            background: C.inset,
             borderRadius: 10
           }
         }, /*#__PURE__*/React.createElement("div", {
@@ -1404,7 +1761,7 @@ function LettersPanel({
             fontWeight: 700,
             color: C.accent
           }
-        }, "+5")), /*#__PURE__*/React.createElement("div", {
+        }, "+", advBoost)), /*#__PURE__*/React.createElement("div", {
           style: {
             textAlign: "center"
           }
@@ -1415,11 +1772,13 @@ function LettersPanel({
           }
         }, "Publication"), /*#__PURE__*/React.createElement(Pill, {
           color: "#fff",
-          bg: journal === "MNSC" ? C.amber : journal === "EJOR" ? C.accent : C.green,
+          bg: isOPRE ? C.amber : journal === "EJOR" ? C.accent : C.green,
           small: true
         }, "+1 ", journal)))));
       }
       if (outcome === "major_revision") {
+        const nextRound = revisionRound || 1;
+        const nextRates = OPRE_RATES[Math.min(nextRound, 2)];
         return /*#__PURE__*/React.createElement("div", {
           style: {
             animation: "popIn .35s ease"
@@ -1448,7 +1807,7 @@ function LettersPanel({
             color: C.amber,
             marginBottom: 16
           }
-        }, "\uD83D\uDCDD Major Revision Required"), /*#__PURE__*/React.createElement("div", {
+        }, "\uD83D\uDCDD Major Revision Required ", journal === "OPRE" && `(Round ${nextRound})`), /*#__PURE__*/React.createElement("div", {
           style: {
             fontSize: 13,
             color: C.text,
@@ -1467,13 +1826,30 @@ function LettersPanel({
           style: {
             marginBottom: 8
           }
-        }, "The reviewers have identified significant concerns that must be addressed before the manuscript can be considered for publication. Please revise and resubmit."), /*#__PURE__*/React.createElement("p", null, "Sincerely,", /*#__PURE__*/React.createElement("br", null), "The Editorial Board, ", journal)), /*#__PURE__*/React.createElement("div", {
+        }, "The reviewers have identified significant concerns that must be addressed before the manuscript can be considered for publication. Please revise and resubmit."), /*#__PURE__*/React.createElement("p", null, "Sincerely,", /*#__PURE__*/React.createElement("br", null), "The Editorial Board, ", journal)), journal === "OPRE" && nextRates && /*#__PURE__*/React.createElement("div", {
+          style: {
+            background: C.inset,
+            borderRadius: 10,
+            padding: "10px 14px",
+            fontSize: 11,
+            color: C.sub,
+            marginBottom: 8
+          }
+        }, /*#__PURE__*/React.createElement("strong", {
+          style: {
+            color: C.amber
+          }
+        }, "Next round rates (Round ", nextRound, "):"), " ", "Accept ", Math.round(nextRates.accept * 100), "% \xB7 Major ", Math.round(nextRates.major * 100), "% \xB7 Reject ", Math.round(nextRates.reject * 100), "%", nextRound >= 2 && /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: C.red
+          }
+        }, " \u2014 no further major revision possible")), /*#__PURE__*/React.createElement("div", {
           style: {
             fontSize: 12,
             color: C.amber,
             fontWeight: 600
           }
-        }, "\u2192 Go to Papers Awaiting Action to revise and resubmit.")));
+        }, "\u2192 Revise (+WQ) then resubmit from Papers Awaiting Action.")));
       }
 
       // Reject
@@ -1527,9 +1903,29 @@ function LettersPanel({
       }, "The reviewers felt the manuscript does not meet the current standards required for publication. You may consider submitting to another venue."), /*#__PURE__*/React.createElement("p", null, "Sincerely,", /*#__PURE__*/React.createElement("br", null), "The Editorial Board, ", journal)), /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 12,
-          color: C.sub
+          color: C.sub,
+          marginBottom: 8
         }
-      }, "\u2192 You can resubmit to a different journal from Papers Awaiting Action.")));
+      }, "\u2192 You can resubmit to a different journal from Papers Awaiting Action."), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 16,
+          padding: "10px 14px",
+          background: C.redSoft,
+          borderRadius: 8,
+          fontSize: 11
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.red,
+          fontWeight: 600
+        }
+      }, "Mood \u221210"), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.red,
+          fontWeight: 600
+        }
+      }, "Advisor Relation \u22125"))));
     }
 
     // ── NSF award ──
@@ -1581,16 +1977,31 @@ function LettersPanel({
         style: {
           marginBottom: 8
         }
-      }, "Your fellowship includes a ", /*#__PURE__*/React.createElement("strong", null, "$2,000/month supplement"), " added to your doctoral stipend, effective immediately."), /*#__PURE__*/React.createElement("p", null, "Congratulations,", /*#__PURE__*/React.createElement("br", null), "NSF Division of Graduate Education")), /*#__PURE__*/React.createElement("div", {
+      }, "Your fellowship includes a ", /*#__PURE__*/React.createElement("strong", null, "$10,000 one-time award"), " deposited directly to your account."), /*#__PURE__*/React.createElement("p", null, "Congratulations,", /*#__PURE__*/React.createElement("br", null), "NSF Division of Graduate Education")), /*#__PURE__*/React.createElement("div", {
         style: {
           padding: "12px 16px",
-          background: "#fff",
+          background: C.inset,
           borderRadius: 10,
           fontSize: 13,
           color: C.green,
+          fontWeight: 600,
+          marginBottom: 8
+        }
+      }, "\uD83D\uDCB0 +$10,000 one-time deposit to your account!"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 16,
+          padding: "10px 14px",
+          background: C.greenSoft,
+          borderRadius: 8,
+          fontSize: 11
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.green,
           fontWeight: 600
         }
-      }, "\uD83D\uDCB0 +$2,000/month added to your salary permanently!")));
+      }, "Mood +20"))));
     }
 
     // ── NSF reject ──
@@ -1645,9 +2056,24 @@ function LettersPanel({
       }, "The fellowship is highly competitive. You may apply again next October. Building your publication record will improve future chances."), /*#__PURE__*/React.createElement("p", null, "Regards,", /*#__PURE__*/React.createElement("br", null), "NSF Division of Graduate Education")), /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 12,
-          color: C.muted
+          color: C.muted,
+          marginBottom: 8
         }
-      }, "\u2192 You can reapply next October. More publications = higher chance.")));
+      }, "\u2192 You can reapply next October. More publications = higher chance."), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 16,
+          padding: "10px 14px",
+          background: C.redSoft,
+          borderRadius: 8,
+          fontSize: 11
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.red,
+          fontWeight: 600
+        }
+      }, "Mood \u221210"))));
     }
 
     // ── INFORMS attend notification ──
@@ -1694,7 +2120,7 @@ function LettersPanel({
           display: "flex",
           gap: 16,
           padding: "12px 16px",
-          background: "#fff",
+          background: C.inset,
           borderRadius: 10
         }
       }, /*#__PURE__*/React.createElement("div", {
@@ -1768,7 +2194,7 @@ function LettersPanel({
           marginBottom: 12,
           fontWeight: 600
         }
-      }, "OFFICIAL RESULT \xB7 DEPARTMENT OF MANAGEMENT SCIENCE"), /*#__PURE__*/React.createElement("div", {
+      }, "OFFICIAL RESULT \xB7 DEPARTMENT OF OPERATIONS RESEARCH"), /*#__PURE__*/React.createElement("div", {
         style: {
           fontFamily: "'Lora',serif",
           fontSize: 22,
@@ -1809,7 +2235,7 @@ function LettersPanel({
           display: "flex",
           gap: 16,
           padding: "12px 16px",
-          background: "#fff",
+          background: C.inset,
           borderRadius: 10
         }
       }, /*#__PURE__*/React.createElement("div", {
@@ -1844,6 +2270,110 @@ function LettersPanel({
         }
       }, "+8")))));
     }
+
+    // ── Advisor Year-3 performance review ──
+    if (letter.type === "advisor_y3_review") {
+      const {
+        verdict
+      } = letter;
+      const cfg = {
+        satisfied: {
+          bg: C.greenSoft,
+          border: C.green,
+          color: C.green,
+          icon: "😊",
+          title: "Year 3 Review — Advisor is Satisfied",
+          body: "Your advisor called you in for the annual review meeting and expressed genuine satisfaction with your progress. Having a published paper at this stage puts you ahead of schedule. Keep up the excellent work.",
+          effect: /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: C.green,
+              fontWeight: 600
+            }
+          }, "Advisor Relation +10 \xB7 Reputation +5")
+        },
+        upset: {
+          bg: C.amberSoft,
+          border: C.amber,
+          color: C.amber,
+          icon: "😟",
+          title: "Year 3 Review — Advisor is Disappointed",
+          body: "Your advisor reviewed your progress and expressed concern. You are already in your third year with no publications. Your manuscripts exist, but none have cleared the review process. You need to accelerate — significantly.",
+          effect: /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: C.amber,
+              fontWeight: 600
+            }
+          }, "Advisor Relation \u221220 \xB7 Push harder to publish!")
+        },
+        very_upset: {
+          bg: C.redSoft,
+          border: C.red,
+          color: C.red,
+          icon: "😡",
+          title: "Year 3 Review — Advisor is Very Upset",
+          body: "Your advisor is alarmed. Three years in and you have not even begun writing a paper. This is far below the expected standard for a doctoral candidate at this stage. Your position in the program may be at risk if you do not produce tangible output immediately.",
+          effect: /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: C.red,
+              fontWeight: 600
+            }
+          }, "Advisor Relation \u221235 \xB7 Your program status is at risk!")
+        }
+      }[verdict];
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          animation: "popIn .35s ease"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          background: cfg.bg,
+          border: `2px solid ${cfg.border}`,
+          borderRadius: 14,
+          padding: "28px 32px",
+          marginBottom: 16
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: cfg.color,
+          letterSpacing: 3,
+          marginBottom: 12,
+          fontWeight: 600
+        }
+      }, "ANNUAL REVIEW \xB7 END OF YEAR 3"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontFamily: "'Lora',serif",
+          fontSize: 22,
+          fontWeight: 700,
+          color: cfg.color,
+          marginBottom: 16
+        }
+      }, cfg.icon, " ", cfg.title), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 13,
+          color: C.text,
+          lineHeight: 1.9,
+          marginBottom: 20
+        }
+      }, /*#__PURE__*/React.createElement("p", {
+        style: {
+          marginBottom: 8
+        }
+      }, "Dear Doctoral Student,"), /*#__PURE__*/React.createElement("p", {
+        style: {
+          marginBottom: 8
+        }
+      }, cfg.body), /*#__PURE__*/React.createElement("p", null, "Regards,", /*#__PURE__*/React.createElement("br", null), "Your PhD Advisor")), /*#__PURE__*/React.createElement("div", {
+        style: {
+          padding: "10px 14px",
+          background: C.inset,
+          borderRadius: 10
+        }
+      }, cfg.effect)));
+    }
     return null;
   };
   return /*#__PURE__*/React.createElement("div", {
@@ -1861,6 +2391,7 @@ function LettersPanel({
 function RecentLog({
   log
 }) {
+  const C = useC();
   const recent = (log || []).slice(0, 3);
   if (recent.length === 0) return null;
   return /*#__PURE__*/React.createElement("div", {
@@ -1901,11 +2432,13 @@ function Sidebar({
   setView,
   onQuit
 }) {
+  const C = useC();
   const year = calYear(s.month);
   const mi = calMonIdx(s.month);
   const pct = s.month / MAX_MONTHS;
   const barCol = s.month > 60 ? C.red : s.month > 48 ? C.amber : C.accent;
   const tabs = ["game", "papers", "log"];
+  const seasonEmoji = [2, 3, 4].includes(mi) ? "🌸" : [5, 6, 7].includes(mi) ? "☀️" : [8, 9, 10].includes(mi) ? "🍂" : "⛄";
   return /*#__PURE__*/React.createElement("div", {
     style: {
       width: 210,
@@ -1913,12 +2446,22 @@ function Sidebar({
     }
   }, /*#__PURE__*/React.createElement(Card, null, /*#__PURE__*/React.createElement(SectionLabel, null, "Timeline"), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 22
+    }
+  }, seasonEmoji), /*#__PURE__*/React.createElement("div", {
+    style: {
       fontFamily: "'Lora',serif",
       fontSize: 22,
       fontWeight: 700,
       color: C.text
     }
-  }, MONTH_NAMES[mi], " Y", year), /*#__PURE__*/React.createElement("div", {
+  }, MONTH_NAMES[mi], " Y", year)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.sub,
@@ -2008,7 +2551,7 @@ function Sidebar({
       color: C.amber
     }
   }, "No ideas \u2014 read papers!")), /*#__PURE__*/React.createElement(Card, null, /*#__PURE__*/React.createElement(SectionLabel, null, "Stats"), /*#__PURE__*/React.createElement(StatBar, {
-    label: "Mental Health",
+    label: "Mood",
     value: s.mentalHealth,
     color: C.green
   }), /*#__PURE__*/React.createElement(StatBar, {
@@ -2033,7 +2576,7 @@ function Sidebar({
   }, s.pubHigh > 0 && /*#__PURE__*/React.createElement(Pill, {
     color: "#fff",
     bg: C.amber
-  }, s.pubHigh, " MNSC"), s.pubMedian > 0 && /*#__PURE__*/React.createElement(Pill, {
+  }, s.pubHigh, " OPRE"), s.pubMedian > 0 && /*#__PURE__*/React.createElement(Pill, {
     color: "#fff",
     bg: C.accent
   }, s.pubMedian, " EJOR"), s.pubLow > 0 && /*#__PURE__*/React.createElement(Pill, {
@@ -2075,7 +2618,7 @@ function Sidebar({
       color: C.green,
       fontWeight: 600
     }
-  }, "\u2705 Comp exam passed!")), (s.informsApplied || s.informsAccepted || s.nsfApplied || s.nsfBonus > 0) && /*#__PURE__*/React.createElement(Card, {
+  }, "\u2705 Comp exam passed!")), (s.informsApplied || s.informsAccepted || s.nsfApplied || s.nsfEverWon) && /*#__PURE__*/React.createElement(Card, {
     style: {
       background: C.tealSoft,
       border: `1px solid ${C.teal}`
@@ -2096,13 +2639,13 @@ function Sidebar({
       fontWeight: 600,
       marginBottom: 4
     }
-  }, "NSF: \u23F3 Decision in May"), s.nsfBonus > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "NSF: \u23F3 Decision in May"), s.nsfEverWon && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.green,
       fontWeight: 600
     }
-  }, "\uD83D\uDCB0 NSF Fellow: +$2,000/mo")), (s.journalReviews.length > 0 || s.pendingAdvisorReview) && /*#__PURE__*/React.createElement(Card, {
+  }, "\uD83C\uDFC5 NSF Fellow (awarded)")), (s.journalReviews.length > 0 || s.pendingAdvisorReview) && /*#__PURE__*/React.createElement(Card, {
     style: {
       background: C.blueSoft,
       border: `1px solid #b3cde8`
@@ -2170,6 +2713,7 @@ function EventPanel({
   s,
   onChoice
 }) {
+  const C = useC();
   const ev = s.currentEvent;
   if (!ev) return null;
   const catCol = {
@@ -2242,7 +2786,7 @@ function EventPanel({
         fontSize: 10,
         color: v > 0 ? C.green : C.red
       }
-    }, k === "money" ? "💰 money" : k.replace(/([A-Z])/g, ' $1').trim().toLowerCase(), " ", v > 0 ? "+" : "", v, k === "money" ? " USD" : ""))));
+    }, k === "money" ? "💰 money" : k === "mentalHealth" ? "mood" : k.replace(/([A-Z])/g, ' $1').trim().toLowerCase(), " ", v > 0 ? "+" : "", v, k === "money" ? " USD" : ""))));
   }));
 }
 
@@ -2252,6 +2796,7 @@ function WorkChoicePanel({
   s,
   onAction
 }) {
+  const C = useC();
   const writable = writableProjects(s);
   const actionable = actionablePapers(s);
   const writing = s.writingPaperId ? s.papers.find(p => p.id === s.writingPaperId) : null;
@@ -2269,7 +2814,27 @@ function WorkChoicePanel({
     style: {
       animation: "fadeIn .3s ease"
     }
-  }, /*#__PURE__*/React.createElement(SectionLabel, null, "\u2699\uFE0F What will you do this month?"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(SectionLabel, null, "\u2699\uFE0F What will you do this month?"), s.taDoneThisMonth && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#fff8e1",
+      border: `1.5px solid ${C.amber}`,
+      borderRadius: 10,
+      padding: "10px 14px",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.amber,
+      fontWeight: 700
+    }
+  }, "\uD83D\uDCDA TA Duties Active This Month"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.amber,
+      marginTop: 3
+    }
+  }, "You're teaching this month \u2014 research is on hold. Use your time for writing, reading, or resting.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
@@ -2315,12 +2880,12 @@ function WorkChoicePanel({
     }
   }, "Current pass chance: ", Math.min(Math.round((COMP_EXAM_BASE_CHANCE + (s.compExamStudySessions || 0) * COMP_EXAM_STUDY_BONUS) * 100), 97), "%", " ", "\xB7 Choose any action to advance and take the exam.")), /*#__PURE__*/React.createElement(ChoiceCard, {
     onClick: () => onAction("research"),
-    disabled: !s.activeProject || activeProj?.solved
+    disabled: !s.activeProject || activeProj?.solved || s.taDoneThisMonth
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       fontWeight: 600,
-      color: C.text
+      color: s.taDoneThisMonth ? C.muted : C.text
     }
   }, "\uD83D\uDD2C Research"), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2328,7 +2893,7 @@ function WorkChoicePanel({
       color: C.sub,
       marginTop: 3
     }
-  }, s.activeProject ? activeProj?.solved ? "Solved — write a paper!" : `${s.activeProject} · ${activeProj?.monthsSpent || 0} months` : "No active project")), /*#__PURE__*/React.createElement(ChoiceCard, {
+  }, s.taDoneThisMonth ? "Busy with TA duties this month" : s.activeProject ? activeProj?.solved ? "Solved — write a paper!" : `${s.activeProject} · ${activeProj?.monthsSpent || 0} months` : "No active project")), /*#__PURE__*/React.createElement(ChoiceCard, {
     onClick: () => onAction("new_project"),
     disabled: !canNewProject,
     color: canNewProject ? C.amber : undefined,
@@ -2390,7 +2955,7 @@ function WorkChoicePanel({
       color: C.accent,
       marginTop: 3
     }
-  }, writing.id, " \xB7 Q:", writing.quality)), canApplyINFORMS && /*#__PURE__*/React.createElement(ChoiceCard, {
+  }, writing.id, " \xB7 WQ:", writing.wq || 0, " RQ:", writing.rq || 0)), canApplyINFORMS && /*#__PURE__*/React.createElement(ChoiceCard, {
     onClick: () => onAction("apply_informs"),
     color: C.teal,
     highlight: true
@@ -2422,7 +2987,7 @@ function WorkChoicePanel({
       color: C.green,
       marginTop: 3
     }
-  }, "October only \xB7 Results in May \xB7 +$2k/mo if awarded")), s.canWriteThesis && !s.thesisStarted && /*#__PURE__*/React.createElement(ChoiceCard, {
+  }, "October only \xB7 Results in May \xB7 $10k one-time if awarded")), s.canWriteThesis && !s.thesisStarted && /*#__PURE__*/React.createElement(ChoiceCard, {
     onClick: () => onAction("thesis"),
     color: C.green,
     highlight: true
@@ -2509,7 +3074,7 @@ function WorkChoicePanel({
   }, /*#__PURE__*/React.createElement(SectionLabel, {
     color: C.red
   }, "\uD83D\uDCEC Papers Awaiting Action"), actionable.map(paper => {
-    const tier = qualityTier(paper.quality);
+    const elig = eligibleJournals(paper);
     return /*#__PURE__*/React.createElement("div", {
       key: paper.id,
       style: {
@@ -2530,33 +3095,65 @@ function WorkChoicePanel({
         fontSize: 13,
         color: C.text
       }
-    }, paper.id), /*#__PURE__*/React.createElement(Pill, {
-      color: TIER_COLOR[tier],
-      bg: TIER_BG[tier],
-      small: true
-    }, tier.toUpperCase(), " Q:", paper.quality)), /*#__PURE__*/React.createElement("div", {
+    }, paper.id), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: C.sub
+      }
+    }, "RQ:", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: C.blue
+      }
+    }, paper.rq || 0), " WQ:", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: C.accent
+      }
+    }, paper.wq || 0))), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10,
         color: C.sub,
         marginBottom: 8
       }
-    }, "Status: ", /*#__PURE__*/React.createElement("strong", null, paper.status), paper.advisorLevel && ` · Advisor suggests: ${paper.advisorLevel}`, paper.pendingJournal && ` · Revise for: ${paper.pendingJournal}`), /*#__PURE__*/React.createElement("div", {
+    }, "Status: ", /*#__PURE__*/React.createElement("strong", null, paper.status), paper.advisorLevel && ` · Advisor suggests: ${paper.advisorLevel}`, paper.pendingJournal && ` · Revise for: ${paper.pendingJournal}`, paper.revisionCount > 0 && ` · Round ${paper.revisionCount}`), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
         gap: 6
       }
-    }, Object.keys(JOURNALS).map(j => /*#__PURE__*/React.createElement(Btn, {
-      key: j,
-      small: true,
-      disabled: (paper.rejectedFrom || []).includes(j) || paper.status === "under_review",
-      onClick: () => onAction(`submit::${paper.id}::${j}`),
-      variant: j === "MNSC" ? "danger" : j === "EJOR" ? "primary" : "success"
-    }, "\u2192 ", j)), (paper.status === "rejected" || paper.status === "major_revision") && /*#__PURE__*/React.createElement(Btn, {
+    }, Object.keys(JOURNALS).map(j => {
+      const canSubmit = elig.includes(j) && !(paper.rejectedFrom || []).includes(j) && paper.status !== "under_review";
+      // For OPRE after 2 revision rounds: no more major revision possible, label it as final round
+      const isOpreFinal = j === "OPRE" && (paper.revisionCount || 0) >= 2;
+      return /*#__PURE__*/React.createElement(Btn, {
+        key: j,
+        small: true,
+        disabled: !canSubmit,
+        onClick: () => onAction(`submit::${paper.id}::${j}`),
+        variant: j === "OPRE" ? "danger" : j === "EJOR" ? "primary" : "success"
+      }, "\u2192 ", j, isOpreFinal ? " (final)" : "");
+    }), (paper.status === "rejected" || paper.status === "major_revision") && /*#__PURE__*/React.createElement(Btn, {
       small: true,
       onClick: () => onAction(`revise::${paper.id}`),
       variant: "neutral"
-    }, "\uD83D\uDD27 Revise")));
+    }, "\uD83D\uDD27 Revise (+WQ)")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6,
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap"
+      }
+    }, Object.keys(JOURNALS).filter(j => !elig.includes(j) && !(paper.rejectedFrom || []).includes(j)).map(j => {
+      const req = JOURNAL_REQS[j];
+      const rqOk = (paper.rq || 0) >= req.rq;
+      const wqOk = (paper.wq || 0) >= req.wq;
+      return /*#__PURE__*/React.createElement("span", {
+        key: j,
+        style: {
+          fontSize: 9,
+          color: C.muted
+        }
+      }, j, ": ", !rqOk && `RQ needs ${req.rq}`, !rqOk && !wqOk && " · ", !wqOk && `WQ needs ${req.wq}`);
+    })));
   })));
 }
 
@@ -2567,6 +3164,7 @@ function ResearchPanel({
   onResearch,
   onBack
 }) {
+  const C = useC();
   const proj = s.projects.find(p => p.id === s.activeProject);
   const eff = proj ? Math.round(s.mentalHealth / 100 * (0.5 + s.domainKnowledge / 200) * 100) : 0;
   return /*#__PURE__*/React.createElement("div", {
@@ -2676,20 +3274,34 @@ function WritingPanel({
   s,
   onDevote,
   onSubmitAdvisor,
-  onBack
+  onBack,
+  onAbolish
 }) {
+  const C = useC();
   const paper = s.papers.find(p => p.id === s.writingPaperId);
   if (!paper) return /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.sub
     }
   }, "No paper in progress.");
-  const tier = qualityTier(paper.quality);
-  const desc = {
-    high: "MNSC-ready",
-    median: "EJOR-suitable",
-    low: "COR-level"
-  }[tier];
+  const rq = paper.rq || 0;
+  const wq = paper.wq || 0;
+  const [confirmAbolish, setConfirmAbolish] = useState(false);
+
+  // Journal eligibility display
+  const journalStatus = Object.keys(JOURNALS).map(j => {
+    const req = JOURNAL_REQS[j];
+    const rqOk = rq >= req.rq;
+    const wqOk = wq >= req.wq;
+    const ok = rqOk && wqOk;
+    return {
+      j,
+      req,
+      rqOk,
+      wqOk,
+      ok
+    };
+  });
   return /*#__PURE__*/React.createElement("div", {
     style: {
       animation: "fadeIn .3s ease"
@@ -2702,58 +3314,146 @@ function WritingPanel({
       fontSize: 20,
       fontWeight: 700,
       color: C.text,
-      marginBottom: 12
+      marginBottom: 16
     }
   }, paper.id), /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      justifyContent: "space-between",
-      fontSize: 11,
-      marginBottom: 4,
-      color: C.sub
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "Paper Quality"), /*#__PURE__*/React.createElement(Pill, {
-    color: TIER_COLOR[tier],
-    bg: TIER_BG[tier],
-    small: true
-  }, tier.toUpperCase(), " \u2014 ", desc)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 7,
-      background: C.border,
-      borderRadius: 4,
-      overflow: "hidden",
-      marginBottom: 4
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 16
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: `${paper.quality}%`,
-      height: "100%",
-      background: TIER_COLOR[tier],
-      borderRadius: 4,
-      transition: "width .5s"
+      background: C.blueSoft,
+      borderRadius: 10,
+      padding: "12px 14px"
     }
-  })), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.blue,
+      fontWeight: 600,
+      letterSpacing: 1,
+      marginBottom: 4
+    }
+  }, "RESEARCH QUALITY (RQ)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 28,
+      fontWeight: 700,
+      color: C.blue,
+      fontFamily: "'Lora',serif"
+    }
+  }, rq), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 2
+    }
+  }, "Fixed at project solve")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.accentSoft,
+      borderRadius: 10,
+      padding: "12px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.accent,
+      fontWeight: 600,
+      letterSpacing: 1,
+      marginBottom: 4
+    }
+  }, "WRITING QUALITY (WQ)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 28,
+      fontWeight: 700,
+      color: C.accent,
+      fontFamily: "'Lora',serif"
+    }
+  }, wq), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 2
+    }
+  }, "+0 to +10 per month writing"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10,
       color: C.muted,
-      marginBottom: 16
+      letterSpacing: 1.5,
+      fontWeight: 600,
+      marginBottom: 8
     }
-  }, "Months writing: ", /*#__PURE__*/React.createElement("strong", {
-    style: {
-      color: C.text
-    }
-  }, paper.monthsWriting), " ", "\xB7 Quality: ", /*#__PURE__*/React.createElement("strong", {
-    style: {
-      color: TIER_COLOR[tier]
-    }
-  }, paper.quality, "/100")), /*#__PURE__*/React.createElement("div", {
+  }, "JOURNAL ELIGIBILITY"), journalStatus.map(({
+    j,
+    req,
+    rqOk,
+    wqOk,
+    ok
+  }) => {
+    const jColor = j === "OPRE" ? C.amber : j === "EJOR" ? C.accent : C.green;
+    return /*#__PURE__*/React.createElement("div", {
+      key: j,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "7px 10px",
+        borderRadius: 8,
+        marginBottom: 5,
+        background: ok ? jColor + "18" : C.surfaceAlt,
+        border: `1px solid ${ok ? jColor : C.border}`
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13
+      }
+    }, ok ? "✅" : "❌"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 700,
+        fontSize: 11,
+        color: jColor,
+        minWidth: 36
+      }
+    }, j), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: C.sub,
+        flex: 1
+      }
+    }, JOURNALS[j].name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: rqOk ? C.green : C.red,
+        fontWeight: 600
+      }
+    }, "RQ\u2265", req.rq), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: wqOk ? C.green : C.red,
+        fontWeight: 600
+      }
+    }, "WQ\u2265", req.wq));
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: C.sub,
       marginBottom: 18,
       lineHeight: 1.7
     }
-  }, "Each month devoted to writing increases quality.", /*#__PURE__*/React.createElement("br", null), "Minimum 1 month required before submitting to your advisor."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(Btn, {
+  }, "Each writing month adds a random ", /*#__PURE__*/React.createElement("strong", null, "0\u201320 WQ"), ". RQ is locked from your research.", /*#__PURE__*/React.createElement("br", null), "Must write \u22651 month before submitting to advisor."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: confirmAbolish ? 0 : undefined
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
     onClick: onDevote,
     variant: "primary"
   }, "Devote Month to Writing"), /*#__PURE__*/React.createElement(Btn, {
@@ -2763,7 +3463,49 @@ function WritingPanel({
   }, "Submit to Advisor \u2713"), /*#__PURE__*/React.createElement(Btn, {
     onClick: onBack,
     variant: "ghost"
-  }, "\u2190 Back")));
+  }, "\u2190 Back"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setConfirmAbolish(true),
+    variant: "danger",
+    small: true
+  }, "\uD83D\uDDD1 Abolish Paper")), confirmAbolish && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14,
+      background: C.redSoft,
+      border: `1.5px solid ${C.red}`,
+      borderRadius: 10,
+      padding: "14px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.red,
+      marginBottom: 8
+    }
+  }, "\u26A0\uFE0F Abolish \"", paper.id, "\"?"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.sub,
+      marginBottom: 12,
+      lineHeight: 1.6
+    }
+  }, "This will permanently delete the paper and free the project slot. The RQ of ", /*#__PURE__*/React.createElement("strong", null, rq), " will be lost. This cannot be undone."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => {
+      setConfirmAbolish(false);
+      onAbolish(paper.id);
+    },
+    variant: "danger",
+    small: true
+  }, "Yes, abolish it"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setConfirmAbolish(false),
+    variant: "neutral",
+    small: true
+  }, "Cancel"))));
 }
 
 // ─── CAREER PANEL ─────────────────────────────────────────────────────────────
@@ -2772,6 +3514,7 @@ function CareerPanel({
   s,
   onChoose
 }) {
+  const C = useC();
   const hasHigh = s.pubHigh >= 1;
   const hasPostdoc = hasHigh || s.pubMedian >= 2;
   const careers = [{
@@ -2779,7 +3522,7 @@ function CareerPanel({
     icon: "🏛️",
     label: "Tenure-Track Faculty",
     qual: hasHigh,
-    desc: hasHigh ? "✅ Qualified (1 MNSC paper)" : "❌ Need 1 MNSC paper",
+    desc: hasHigh ? "✅ Qualified (1 OPRE paper)" : "❌ Need 1 OPRE paper",
     color: C.green,
     bg: C.greenSoft
   }, {
@@ -2787,7 +3530,7 @@ function CareerPanel({
     icon: "🔬",
     label: "Postdoctoral Researcher",
     qual: hasPostdoc,
-    desc: hasPostdoc ? "✅ Qualified" : "❌ Need 1 MNSC or 2 EJOR",
+    desc: hasPostdoc ? "✅ Qualified" : "❌ Need 1 OPRE or 2 EJOR",
     color: C.accent,
     bg: C.accentSoft
   }, {
@@ -2819,7 +3562,7 @@ function CareerPanel({
       color: C.sub,
       marginBottom: 20
     }
-  }, s.pubHigh, " MNSC \xB7 ", s.pubMedian, " EJOR \xB7 ", s.pubLow, " COR"), careers.map(c => /*#__PURE__*/React.createElement(ChoiceCard, {
+  }, s.pubHigh, " OPRE \xB7 ", s.pubMedian, " EJOR \xB7 ", s.pubLow, " COR"), careers.map(c => /*#__PURE__*/React.createElement(ChoiceCard, {
     key: c.key,
     onClick: () => onChoose(c.key),
     color: c.color
@@ -2858,15 +3601,16 @@ function CareerPanel({
 function PapersTab({
   s
 }) {
+  const C = useC();
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionLabel, null, "\uD83D\uDCC4 All Papers"), s.papers.length === 0 && /*#__PURE__*/React.createElement("p", {
     style: {
       color: C.muted,
       fontSize: 12
     }
   }, "No papers yet."), s.papers.map(p => {
-    const tier = qualityTier(p.quality);
     const rev = s.journalReviews.find(r => r.paperId === p.id);
     const sc = p.status === "accepted" ? C.green : p.status === "rejected" ? C.red : C.sub;
+    const elig = eligibleJournals(p);
     return /*#__PURE__*/React.createElement(Card, {
       key: p.id
     }, /*#__PURE__*/React.createElement("div", {
@@ -2881,14 +3625,24 @@ function PapersTab({
         fontSize: 13,
         color: C.text
       }
-    }, p.id), /*#__PURE__*/React.createElement(Pill, {
-      color: TIER_COLOR[tier],
-      bg: TIER_BG[tier],
+    }, p.id), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement(Pill, {
+      color: C.blue,
+      bg: C.blueSoft,
       small: true
-    }, tier.toUpperCase(), " Q:", p.quality)), /*#__PURE__*/React.createElement("div", {
+    }, "RQ:", p.rq || 0), /*#__PURE__*/React.createElement(Pill, {
+      color: C.accent,
+      bg: C.accentSoft,
+      small: true
+    }, "WQ:", p.wq || 0))), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
-        color: sc
+        color: sc,
+        marginBottom: 4
       }
     }, /*#__PURE__*/React.createElement("strong", null, p.status), p.journal && ` · ${p.journal}`, rev && /*#__PURE__*/React.createElement("span", {
       style: {
@@ -2898,12 +3652,18 @@ function PapersTab({
       style: {
         color: C.muted
       }
-    }, " \xB7 ", p.revisionCount, " rev")));
+    }, " \xB7 Rev.", p.revisionCount)), elig.length > 0 && p.status !== "accepted" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: C.green
+      }
+    }, "Qualifies for: ", elig.join(", ")));
   }));
 }
 function LogTab({
   s
 }) {
+  const C = useC();
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionLabel, null, "\uD83D\uDCCB Event Log"), s.log.map((e, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
     style: {
@@ -2919,6 +3679,7 @@ function GameOverPanel({
   s,
   onRestart
 }) {
+  const C = useC();
   const reason = s.gameOverReason || "timeout";
   const configs = {
     timeout: {
@@ -2936,8 +3697,8 @@ function GameOverPanel({
     mentalHealth: {
       icon: "🧠",
       color: C.rose,
-      title: "Mental Health Crisis",
-      body: "Your mental health collapsed. A doctor has strongly advised you to step away from the PhD program and focus on recovery. It's okay — your wellbeing comes first."
+      title: "Mood Crisis",
+      body: "Your mood collapsed and you became severely depressed. A doctor has strongly advised you to step away from the PhD program and focus on recovery. It's okay — your wellbeing comes first."
     },
     advisorKick: {
       icon: "🚪",
@@ -3003,15 +3764,18 @@ function WinPanel({
   s,
   onRestart
 }) {
+  const C = useC();
   const year = calYear(s.month);
   const mon = MONTH_NAMES[calMonIdx(s.month)];
   return /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: "40px 24px",
-      animation: "popIn .4s ease"
+      animation: "popIn .4s ease",
+      position: "relative",
+      overflow: "hidden"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Confetti, null), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 56,
       marginBottom: 12
@@ -3036,7 +3800,7 @@ function WinPanel({
       color: C.text,
       marginBottom: 24
     }
-  }, s.pubHigh, " MNSC \xB7 ", s.pubMedian, " EJOR \xB7 ", s.pubLow, " COR"), /*#__PURE__*/React.createElement(Btn, {
+  }, s.pubHigh, " OPRE \xB7 ", s.pubMedian, " EJOR \xB7 ", s.pubLow, " COR"), /*#__PURE__*/React.createElement(Btn, {
     onClick: onRestart,
     variant: "primary"
   }, "Play Again"));
@@ -3047,6 +3811,10 @@ function WinPanel({
 function PhDOdyssey() {
   const [s, setS] = useState(initialState());
   const [view, setView] = useState("game");
+  const [ideaPopup, setIdeaPopup] = useState(false);
+  const [breakthroughPopup, setBreakthroughPopup] = useState(null); // { projectId, rq } or null
+  const [dark, setDark] = useState(false);
+  const theme = dark ? DARK : LIGHT;
   const mainRef = useRef(null);
 
   // ── Event choice ──────────────────────────────────────────────────────────
@@ -3070,6 +3838,8 @@ function PhDOdyssey() {
           }];
         } else if (map[k]) ns[k] = clamp(ns[k] + v);
       });
+      // TA flag: research blocked this month
+      if (opt.setTA) ns.taDoneThisMonth = true;
       ns.log = [`📌 "${prev.currentEvent.title}" — ${opt.consequence}`, ...ns.log];
       if (ns.mentalHealth <= 0) return {
         ...ns,
@@ -3135,15 +3905,14 @@ function PhDOdyssey() {
     }
     if (key === "read_papers") {
       setS(prev => {
-        const knowledgeGain = Math.round(4 + Math.random() * 6);
-        const mhLoss = Math.round(3 + Math.random() * 4);
-        const gotIdea = Math.random() < 0.25;
+        const gotIdea = Math.random() < 0.10;
+        if (gotIdea) setTimeout(() => setIdeaPopup(true), 50);
         const ns = {
           ...prev,
-          domainKnowledge: clamp(prev.domainKnowledge + knowledgeGain),
-          mentalHealth: clamp(prev.mentalHealth - mhLoss),
+          domainKnowledge: clamp(prev.domainKnowledge + 5),
+          mentalHealth: clamp(prev.mentalHealth - 5),
           ideas: prev.ideas + (gotIdea ? 1 : 0),
-          log: [`📚 Read papers: +${knowledgeGain} knowledge, -${mhLoss} mental health.${gotIdea ? " 💡 New idea!" : " (no new idea)"}`, ...prev.log]
+          log: [`📚 Read papers: +5 knowledge, -5 mood.${gotIdea ? " 💡 New idea!" : " (no new idea)"}`, ...prev.log]
         };
         return tickMonth(ns).state;
       });
@@ -3167,7 +3936,7 @@ function PhDOdyssey() {
           ...prev,
           nsfApplied: true,
           mentalHealth: clamp(prev.mentalHealth - 8),
-          log: [`🏅 NSF Fellowship application submitted! Results in May. Win chance: ${Math.round(chance * 100)}% (based on your publications).`, ...prev.log]
+          log: [`🏅 NSF Fellowship application submitted! Results in May. Win chance: ${Math.round(chance * 100)}% (based on your publications). Award: $10,000 one-time.`, ...prev.log]
         };
         return tickMonth(ns).state;
       });
@@ -3179,11 +3948,14 @@ function PhDOdyssey() {
         const proj = prev.projects.find(p => p.id === projId);
         if (!proj?.solved) return prev;
         const paperId = `Paper ${prev.papers.length + 1}`;
-        const initQ = Math.min(Math.round(20 + proj.progress / 8), 60);
+        const rq = Math.min(Math.round(proj.solvedKnowledge ?? prev.domainKnowledge), 100);
         const paper = {
           id: paperId,
           projectId: projId,
-          quality: initQ,
+          rq,
+          // research quality — locked in from domain knowledge at solve time
+          wq: 0,
+          // writing quality — accumulates during writing phase
           monthsWriting: 0,
           status: "writing",
           journal: null,
@@ -3198,7 +3970,7 @@ function PhDOdyssey() {
           writingPaperId: paperId,
           submittedCount: prev.submittedCount + 1,
           phase: "writing",
-          log: [`✍️ Started writing ${paperId}`, ...prev.log]
+          log: [`✍️ Started writing ${paperId} (RQ:${rq})`, ...prev.log]
         };
       });
       return;
@@ -3255,13 +4027,17 @@ function PhDOdyssey() {
     if (key.startsWith("submit::")) {
       const [, paperId, journal] = key.split("::");
       setS(prev => {
+        const paper = prev.papers.find(p => p.id === paperId);
+        if (!paper) return prev;
+        // Check eligibility
+        const req = JOURNAL_REQS[journal];
+        if ((paper.rq || 0) < req.rq || (paper.wq || 0) < req.wq) return prev; // blocked
         const papers = prev.papers.map(p => p.id !== paperId ? p : {
           ...p,
           status: "under_review",
           journal
         });
         const rt = JOURNALS[journal].reviewTime;
-        const paper = prev.papers.find(p => p.id === paperId);
         const ns = {
           ...prev,
           papers,
@@ -3269,9 +4045,9 @@ function PhDOdyssey() {
             paperId,
             journal,
             monthsLeft: rt,
-            revisionCount: paper?.revisionCount || 0
+            revisionCount: paper.revisionCount || 0
           }],
-          log: [`📬 ${paperId} → ${journal}. Review in ~${rt} months.`, ...prev.log]
+          log: [`📬 ${paperId} → ${journal} (RQ:${paper.rq} WQ:${paper.wq}). Review in ~${rt} months.`, ...prev.log]
         };
         return tickMonth(ns).state;
       });
@@ -3280,20 +4056,20 @@ function PhDOdyssey() {
     if (key.startsWith("revise::")) {
       const paperId = key.split("::")[1];
       setS(prev => {
-        const gain = Math.round(5 + Math.random() * 10);
+        const wqGain = Math.floor(Math.random() * 21); // 0–20 writing improvement
         const papers = prev.papers.map(p => {
           if (p.id !== paperId) return p;
           return {
             ...p,
-            quality: Math.min(p.quality + gain, 100),
-            revisionCount: (p.revisionCount || 0) + 1,
+            wq: Math.min((p.wq || 0) + wqGain, 100),
             status: "advisor_approved"
           };
         });
+        const updated = papers.find(p => p.id === paperId);
         const ns = {
           ...prev,
           papers,
-          log: [`🔧 Revised ${paperId}: quality → ${papers.find(p => p.id === paperId).quality}.`, ...prev.log]
+          log: [`🔧 Revised ${paperId}: WQ → ${updated.wq} (+${wqGain}) · ready to resubmit.`, ...prev.log]
         };
         return tickMonth(ns).state;
       });
@@ -3309,24 +4085,43 @@ function PhDOdyssey() {
       if (idx === -1) return prev;
       const eff = prev.mentalHealth / 100 * (0.5 + prev.domainKnowledge / 200);
       const gain = Math.round(10 + eff * 15 + Math.random() * 10);
+      let solvedKnowledge = prev.domainKnowledge;
       const projects = prev.projects.map((p, i) => {
         if (i !== idx) return p;
         const np = Math.min(p.progress + gain, 200);
         let solved = p.solved;
-        if (!solved && np > 100 && Math.random() < (np - 100) / 200) solved = true;
+        if (!solved && np > 100 && Math.random() < (np - 100) / 200) {
+          solved = true;
+          solvedKnowledge = prev.domainKnowledge;
+        }
         return {
           ...p,
           progress: np,
           solved,
+          solvedKnowledge: solved ? solvedKnowledge : p.solvedKnowledge,
           monthsSpent: (p.monthsSpent || 0) + 1
         };
       });
       const proj = projects[idx];
       const solMsg = proj.solved ? " 🎯 SOLVED!" : "";
+      let extraLog = [];
+      let nsExtra = {};
+      if (proj.solved && !prev.projects[idx].solved) {
+        // Project just got solved: domain knowledge → 0, absorbed into research depth
+        extraLog = [`🧠 Domain knowledge consumed into research breakthrough. Knowledge reset to 0.`];
+        nsExtra = {
+          domainKnowledge: 0
+        };
+        setTimeout(() => setBreakthroughPopup({
+          projectId: proj.id,
+          rq: Math.min(Math.round(solvedKnowledge), 100)
+        }), 50);
+      }
       const ns = {
         ...prev,
+        ...nsExtra,
         projects,
-        log: [`🔬 ${prev.activeProject}: month ${proj.monthsSpent}.${solMsg}`, ...prev.log]
+        log: [`🔬 ${prev.activeProject}: month ${proj.monthsSpent}.${solMsg}`, ...extraLog, ...prev.log]
       };
       return tickMonth(ns).state;
     });
@@ -3337,16 +4132,17 @@ function PhDOdyssey() {
     setS(prev => {
       const idx = prev.papers.findIndex(p => p.id === prev.writingPaperId);
       if (idx === -1) return prev;
-      const gain = Math.round(5 + prev.domainKnowledge / 100 * 10 + Math.random() * 5);
+      const wqGain = Math.floor(Math.random() * 21); // 0–20 each month
       const papers = prev.papers.map((p, i) => i !== idx ? p : {
         ...p,
-        quality: Math.min(p.quality + gain, 100),
+        wq: Math.min((p.wq || 0) + wqGain, 100),
         monthsWriting: p.monthsWriting + 1
       });
+      const updated = papers[idx];
       const ns = {
         ...prev,
         papers,
-        log: [`✍️ Writing ${papers[idx].id}: quality → ${papers[idx].quality} (+${gain}).`, ...prev.log]
+        log: [`✍️ Writing ${updated.id}: WQ → ${updated.wq} (+${wqGain}) · RQ:${updated.rq}.`, ...prev.log]
       };
       return tickMonth(ns).state;
     });
@@ -3370,6 +4166,24 @@ function PhDOdyssey() {
         log: [`📨 Submitted ${papers[idx].id} to advisor.`, ...prev.log]
       };
       return tickMonth(ns).state;
+    });
+  };
+
+  // ── Abolish paper ─────────────────────────────────────────────────────────
+  const handleAbolishPaper = paperId => {
+    setS(prev => {
+      // Remove the paper, free the project slot (mark associated project papers as cleared)
+      const papers = prev.papers.filter(p => p.id !== paperId);
+      // If the abolished paper was tied to a project, allow that project to be written again
+      // by removing from papers list — writableProjects will pick it up again
+      return {
+        ...prev,
+        papers,
+        writingPaperId: prev.writingPaperId === paperId ? null : prev.writingPaperId,
+        submittedCount: Math.max(0, prev.submittedCount - 1),
+        phase: "workChoice",
+        log: [`🗑 Abolished ${paperId}. The project can be written again.`, ...prev.log]
+      };
     });
   };
 
@@ -3448,7 +4262,8 @@ function PhDOdyssey() {
       onBack: () => setS(p => ({
         ...p,
         phase: "workChoice"
-      }))
+      })),
+      onAbolish: handleAbolishPaper
     });
     if (s.phase === "career") return /*#__PURE__*/React.createElement(CareerPanel, {
       s: s,
@@ -3468,16 +4283,25 @@ function PhDOdyssey() {
       }
     }, "Loading\u2026");
   };
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("style", null, GLOBAL_STYLES), /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(ThemeCtx.Provider, {
+    value: theme
+  }, /*#__PURE__*/React.createElement("style", null, makeGlobalStyles(theme)), ideaPopup && /*#__PURE__*/React.createElement(IdeaPopup, {
+    onDismiss: () => setIdeaPopup(false)
+  }), breakthroughPopup && /*#__PURE__*/React.createElement(BreakthroughPopup, {
+    projectId: breakthroughPopup.projectId,
+    rq: breakthroughPopup.rq,
+    onDismiss: () => setBreakthroughPopup(null)
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       minHeight: "100vh",
-      background: `radial-gradient(ellipse at 30% 0%, #ece8f8 0%, ${C.bg} 55%)`,
+      background: dark ? `radial-gradient(ellipse at 30% 0%, #1e1640 0%, ${theme.bg} 55%)` : `radial-gradient(ellipse at 30% 0%, #ece8f8 0%, ${theme.bg} 55%)`,
       fontFamily: "'DM Mono',monospace",
-      color: C.text,
+      color: theme.text,
       padding: "20px 16px 48px"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      position: "relative",
       textAlign: "center",
       marginBottom: 24
     }
@@ -3486,16 +4310,42 @@ function PhDOdyssey() {
       fontFamily: "'Lora',serif",
       fontSize: 28,
       fontWeight: 700,
-      color: C.text
+      color: theme.text
     }
   }, "PhD Odyssey"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 9,
-      color: C.muted,
+      color: theme.muted,
       letterSpacing: 4,
       marginTop: 3
     }
-  }, "MANAGEMENT SCIENCE \xB7 SIMULATION")), /*#__PURE__*/React.createElement("div", {
+  }, "OPERATIONS RESEARCH \xB7 SIMULATION"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDark(d => !d),
+    title: dark ? "Switch to Light Mode" : "Switch to Dark Mode",
+    style: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      background: dark ? theme.surfaceAlt : theme.surface,
+      border: `1.5px solid ${theme.border}`,
+      borderRadius: 20,
+      padding: "6px 12px",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 11,
+      fontWeight: 600,
+      color: theme.sub,
+      fontFamily: "'DM Mono',monospace",
+      boxShadow: dark ? "0 2px 8px rgba(0,0,0,.4)" : "0 2px 6px rgba(0,0,0,.08)",
+      transition: "all .2s ease"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15
+    }
+  }, dark ? "☀️" : "🌙"), /*#__PURE__*/React.createElement("span", null, dark ? "Light" : "Dark"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 18,
@@ -3520,10 +4370,10 @@ function PhDOdyssey() {
     log: s.log
   }), /*#__PURE__*/React.createElement("div", {
     style: {
-      background: C.surface,
+      background: theme.surface,
       borderRadius: 14,
       padding: "22px 24px",
-      border: `1px solid ${C.border}`,
+      border: `1px solid ${theme.border}`,
       minHeight: 440,
       maxHeight: "75vh",
       overflowY: "auto"
@@ -3537,10 +4387,9 @@ function PhDOdyssey() {
       textAlign: "center",
       marginTop: 16,
       fontSize: 9,
-      color: C.muted
+      color: theme.muted
     }
-  }, "PhD Odyssey \xB7 Survive 6 years \xB7 Graduate \xB7 Find your path")));
-
+  }, "PhD Odyssey \xB7 Survive 6 years \xB7 Graduate \xB7 Find your path \xB7 Operations Research")));
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
