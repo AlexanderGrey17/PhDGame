@@ -442,8 +442,10 @@ function hasActiveWork(s) {
   return papers.every(p => p.status === "rejected");
 }
 function writableProjects(s) {
+  const abolished = s.abolishedProjectIds || [];
   return s.projects.filter(proj => {
     if (!proj.solved) return false;
+    if (abolished.includes(proj.id)) return false;
     const rel = s.papers.filter(p => p.projectId === proj.id);
     return rel.length === 0 || rel.every(p => p.status === "rejected");
   });
@@ -814,6 +816,7 @@ function initialState() {
     activeProject: null,
     papers: [],
     writingPaperId: null,
+    abolishedProjectIds: [],
     submittedCount: 0,
     pubLow: 0,
     pubMedian: 0,
@@ -4275,17 +4278,21 @@ function PhDOdyssey() {
   // ── Abolish paper ─────────────────────────────────────────────────────────
   const handleAbolishPaper = paperId => {
     setS(prev => {
-      // Remove the paper, free the project slot (mark associated project papers as cleared)
+      const abolishedPaper = prev.papers.find(p => p.id === paperId);
+      const abolishedProjectId = abolishedPaper?.projectId;
       const papers = prev.papers.filter(p => p.id !== paperId);
-      // If the abolished paper was tied to a project, allow that project to be written again
-      // by removing from papers list — writableProjects will pick it up again
+      // Track the abolished project so writableProjects will never re-surface it
+      const abolishedProjectIds = abolishedProjectId
+        ? [...(prev.abolishedProjectIds || []), abolishedProjectId]
+        : (prev.abolishedProjectIds || []);
       return {
         ...prev,
         papers,
+        abolishedProjectIds,
         writingPaperId: prev.writingPaperId === paperId ? null : prev.writingPaperId,
         submittedCount: Math.max(0, prev.submittedCount - 1),
         phase: "workChoice",
-        log: [`🗑 Abolished ${paperId}. The project can be written again.`, ...prev.log]
+        log: [`🗑 Abolished ${paperId}. Writing is permanently closed for this project.`, ...prev.log]
       };
     });
   };
