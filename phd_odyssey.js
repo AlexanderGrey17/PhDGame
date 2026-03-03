@@ -435,9 +435,13 @@ function hasActiveWork(s) {
   if (!proj) return false;
   // Active project is unsolved → still working on it
   if (!proj.solved) return true;
-  // Solved but no paper started yet → still blocking
+  // Solved but no paper started yet → still blocking (unless paper was abolished)
   const papers = s.papers.filter(p => p.projectId === proj.id);
-  if (papers.length === 0) return true;
+  if (papers.length === 0) {
+    // If the paper for this project was abolished, the slot is free
+    if ((s.abolishedProjectIds || []).includes(proj.id)) return false;
+    return true;
+  }
   // Has a paper that is not rejected → not blocking
   return papers.every(p => p.status === "rejected");
 }
@@ -4281,7 +4285,6 @@ function PhDOdyssey() {
       const abolishedPaper = prev.papers.find(p => p.id === paperId);
       const abolishedProjectId = abolishedPaper?.projectId;
       const papers = prev.papers.filter(p => p.id !== paperId);
-      // Track the abolished project so writableProjects will never re-surface it
       const abolishedProjectIds = abolishedProjectId
         ? [...(prev.abolishedProjectIds || []), abolishedProjectId]
         : (prev.abolishedProjectIds || []);
